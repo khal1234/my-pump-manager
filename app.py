@@ -1,10 +1,9 @@
 import streamlit as st
 import pandas as pd
-import re
 
 st.set_page_config(page_title="Pump Track Manager", layout="centered")
 
-# [핵심] 여백 최소화 및 깔끔한 폰트 조절 CSS
+# [UI 최적화] 모바일 여백 최소화 및 레이아웃 CSS
 st.markdown("""
     <style>
     .block-container {
@@ -16,7 +15,6 @@ st.markdown("""
         font-weight: bold;
         margin-top: -20px !important;
         margin-bottom: 12px !important;
-        color: #111;
     }
     .filter-label {
         font-size: 0.8rem !important;
@@ -35,13 +33,18 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
+# 엑셀 로드 및 데이터 캐싱
+@st.cache_data
 def load_pump_data():
     return pd.read_excel("pump_list.xlsx")
 
 df = load_pump_data()
-diff_cols = [f'Diff{i}' for i in range(1, 8)]
 
-# --- 상호 배제 로직을 위한 세션 상태 세팅 ---
+# 새 헤더 정의 (S_1 ~ S_7, D_1 ~ D_7)
+s_cols = [f'S_{i}' for i in range(1, 8)]
+d_cols = [f'D_{i}' for i in range(1, 8)]
+
+# --- 상호 배제 로직 세션 상태 세팅 ---
 if "active_filter_type" not in st.session_state:
     st.session_state.active_filter_type = "ALL"  # "ALL", "S", "D"
 if "current_s" not in st.session_state:
@@ -52,7 +55,7 @@ if "current_d" not in st.session_state:
 # 1. 제목 출력
 st.markdown('<div class="main-title">펌프 커스텀 매니저</div>', unsafe_allow_html=True)
 
-# 2. 장르(Category) 선택 - 자판 안 뜨는 가로 알약 배지 형태
+# 2. Genre (Category) 선택 필터
 st.markdown('<div class="filter-label">Genre</div>', unsafe_allow_html=True)
 raw_categories = df["Category"].dropna().unique()
 cat_options = ["전체"] + sorted([str(cat) for cat in raw_categories])
@@ -63,57 +66,79 @@ if selected_category != "전체":
 else:
     cat_df = df.copy()
 
-# 현재 활성화된 장르 내에서 모든 난이도 수집
-all_diffs = set()
-for col in diff_cols:
-    all_diffs.update(cat_df[col].dropna().astype(str).unique())
+# 현재 활성화된 장르 내에서 실제 입력된 숫자 추출 후 S/D 문자열 결합
+s_levels_set = set()
+for col in s_cols:
+    if col in cat_df.columns:
+        valid_vals = cat_df[col].dropna().astype(int).unique()
+        s_levels_set.update([f"S{v}" for v in valid_vals])
 
-s_levels = sorted([d for d in all_diffs if d.startswith("S")], key=lambda x: int(re.search(r'\d+', x).group()) if re.search(r'\d+', x) else 0)
-d_levels = sorted([d for d in all_diffs if d.startswith("D")], key=lambda x: int(re.search(r'\d+', x).group()) if re.search(r'\d+', x) else 0)
+d_levels_set = set()
+for col in d_cols:
+    if col in cat_df.columns:
+        valid_vals = cat_df[col].dropna().astype(int).unique()
+        d_levels_set.update([f"D{v}" for v in valid_vals])
 
-# 3. 싱글 레벨 선택 필터
+# 정렬할 때 숫자 크기대로 정렬되도록 커스텀 정렬
+s_levels = sorted(list(s_levels_set), key=lambda x: int(x[1:]))
+d_levels = sorted(list(d_levels_set), key=lambda x: int(x[1:]))
+
+# 3. Single Level 필터 (S15 형태로 노출)
 st.markdown('<div class="filter-label">Single Level</div>', unsafe_allow_html=True)
 selected_s = st.pills("SingleSelect", s_levels, selection_mode="single", label_visibility="collapsed")
 
-# 4. 더블 레벨 선택 필터
+# 4. Double Level 필터 (D16 형태로 노출)
 st.markdown('<div class="filter-label">Double Level</div>', unsafe_allow_html=True)
 selected_d = st.pills("DoubleSelect", d_levels, selection_mode="single", label_visibility="collapsed")
 
-# --- 교차 리셋 및 상호배제 로직 정교화 ---
-# S를 새로 눌렀다면 D 필터 무시
+
+# --- 교차 리셋 로직 조율 ---
 if selected_s and selected_s != st.session_state.current_s:
     st.session_state.active_filter_type = "S"
     st.session_state.current_s = selected_s
-# D를 새로 눌렀다면 S 필터 무시
 if selected_d and selected_d != st.session_state.current_d:
     st.session_state.active_filter_type = "D"
     st.session_state.current_d = selected_d
 
-# 아무것도 안 눌려있다면 초기화
 if not selected_s and not selected_d:
     st.session_state.active_filter_type = "ALL"
     st.session_state.current_s = None
     st.session_state.current_d = None
 
-# --- 데이터 최종 필터링 ---
+
+# --- 최종 데이터 필터링 로직 ---
 filtered_df = cat_df.copy()
 
 if st.session_state.active_filter_type == "S" and selected_s:
-    filtered_df = filtered_df[filtered_df[diff_cols].apply(lambda row: selected_s in row.values, axis=1)]
+    # 예: "S15"에서 숫자 "15"만 분리
+    target_num = int(selected_s[1:])
+    # S_1 ~ S_7 열 중 하나라도 해당 숫자가 있는지 검사
+    filtered_df = filtered_df[filtered_df[s_cols].apply(lambda row: target_num in row.values, axis=1)]
+    
+# 🟢 정상적으로 수정된 코드
 elif st.session_state.active_filter_type == "D" and selected_d:
-    filtered_df = filtered_df[filtered_df[diff_cols].apply(lambda row: selected_d in row.values, axis=1)]
+    target_num = int(selected_d[1:])
+    # D_1 ~ D_7 열 중 하나라도 해당 숫자가 있는지 검사
+    filtered_df = filtered_df[filtered_df[d_cols].apply(lambda row: target_num in row.values, axis=1)]
 
 st.markdown('<hr style="margin-top: 8px; margin-bottom: 8px; opacity: 0.2;">', unsafe_allow_html=True)
 
-# --- 리스트 출력 ---
+
+# --- 카드 리스트 출력 ---
 st.markdown(f'<div style="font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; color: #666;">리스트 ({len(filtered_df)}곡)</div>', unsafe_allow_html=True)
 
 for index, row in filtered_df.iterrows():
-    diffs = [row[f"Diff{i}"] for i in range(1, 8) if pd.notna(row[f"Diff{i}"])]
+    # 해당 곡의 싱글 난이도 수집 및 S포맷 변환
+    s_list = [f"S{int(row[c])}" for c in s_cols if c in df.columns and pd.notna(row[c])]
+    # 해당 곡의 더블 난이도 수집 및 D포맷 변환
+    d_list = [f"D{int(row[c])}" for c in d_cols if c in df.columns and pd.notna(row[c])]
+    
+    # 싱글 먼저 다 보여주고, 그 뒤에 더블이 이어서 나오도록 순서 정렬
+    total_diffs = s_list + d_list
     
     tag_html = '<div class="badge-container">'
-    for d in diffs:
-        bg_color = "#e74c3c" if str(d).startswith("S") else "#2ecc71"
+    for d in total_diffs:
+        bg_color = "#e74c3c" if d.startswith("S") else "#2ecc71"
         tag_html += f'<span style="background-color: {bg_color}; color: white; padding: 2px 7px; border-radius: 12px; font-size: 8.5pt; font-weight: bold; display: inline-block; line-height: 1.2; border: 1px solid rgba(0,0,0,0.05);">{d}</span>'
     tag_html += '</div>'
     
