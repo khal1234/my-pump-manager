@@ -55,7 +55,7 @@ if "current_d" not in st.session_state:
 # 1. 제목 출력
 st.markdown('<div class="main-title">펌프 커스텀 매니저</div>', unsafe_allow_html=True)
 
-# 2. Genre (Category) 선택 필터
+# 2. Genre (Category) 선택 필터 (1차 필터)
 st.markdown('<div class="filter-label">Genre</div>', unsafe_allow_html=True)
 raw_categories = df["Category"].dropna().unique()
 cat_options = ["전체"] + sorted([str(cat) for cat in raw_categories])
@@ -66,28 +66,42 @@ if selected_category != "전체":
 else:
     cat_df = df.copy()
 
-# 현재 활성화된 장르 내에서 실제 입력된 숫자 추출 후 S/D 문자열 결합
+# 🌟 3. [핵심 추가] Addition 검색/드롭다운 필터 (2차 필터)
+st.markdown('<div class="filter-label">세부 팩 / 분류 (Addition)</div>', unsafe_allow_html=True)
+raw_additions = cat_df["Addition"].dropna().unique()
+add_options = ["전체"] + sorted([str(add) for add in raw_additions])
+
+# 컴팩트한 검색형 드롭다운 컴포넌트 배치
+selected_addition = st.selectbox("AdditionSelect", add_options, index=0, label_visibility="collapsed")
+
+if selected_addition != "전체":
+    final_filtered_df = cat_df[cat_df["Addition"] == selected_addition]
+else:
+    final_filtered_df = cat_df.copy()
+
+
+# 현재 필터링된 데이터 내에서 실제 입력된 숫자 추출 후 S/D 문자열 결합
 s_levels_set = set()
 for col in s_cols:
-    if col in cat_df.columns:
-        valid_vals = cat_df[col].dropna().astype(int).unique()
+    if col in final_filtered_df.columns:
+        valid_vals = final_filtered_df[col].dropna().astype(int).unique()
         s_levels_set.update([f"S{v}" for v in valid_vals])
 
 d_levels_set = set()
 for col in d_cols:
-    if col in cat_df.columns:
-        valid_vals = cat_df[col].dropna().astype(int).unique()
+    if col in final_filtered_df.columns:
+        valid_vals = final_filtered_df[col].dropna().astype(int).unique()
         d_levels_set.update([f"D{v}" for v in valid_vals])
 
-# 정렬할 때 숫자 크기대로 정렬되도록 커스텀 정렬
+# 정렬할 때 숫자 크기대로 정렬
 s_levels = sorted(list(s_levels_set), key=lambda x: int(x[1:]))
 d_levels = sorted(list(d_levels_set), key=lambda x: int(x[1:]))
 
-# 3. Single Level 필터 (S15 형태로 노출)
+# 4. Single Level 필터
 st.markdown('<div class="filter-label">Single Level</div>', unsafe_allow_html=True)
 selected_s = st.pills("SingleSelect", s_levels, selection_mode="single", label_visibility="collapsed")
 
-# 4. Double Level 필터 (D16 형태로 노출)
+# 5. Double Level 필터
 st.markdown('<div class="filter-label">Double Level</div>', unsafe_allow_html=True)
 selected_d = st.pills("DoubleSelect", d_levels, selection_mode="single", label_visibility="collapsed")
 
@@ -107,33 +121,22 @@ if not selected_s and not selected_d:
 
 
 # --- 최종 데이터 필터링 로직 ---
-filtered_df = cat_df.copy()
-
 if st.session_state.active_filter_type == "S" and selected_s:
-    # 예: "S15"에서 숫자 "15"만 분리
     target_num = int(selected_s[1:])
-    # S_1 ~ S_7 열 중 하나라도 해당 숫자가 있는지 검사
-    filtered_df = filtered_df[filtered_df[s_cols].apply(lambda row: target_num in row.values, axis=1)]
-    
-# 🟢 정상적으로 수정된 코드
+    final_filtered_df = final_filtered_df[final_filtered_df[s_cols].apply(lambda row: target_num in row.values, axis=1)]
 elif st.session_state.active_filter_type == "D" and selected_d:
     target_num = int(selected_d[1:])
-    # D_1 ~ D_7 열 중 하나라도 해당 숫자가 있는지 검사
-    filtered_df = filtered_df[filtered_df[d_cols].apply(lambda row: target_num in row.values, axis=1)]
+    final_filtered_df = final_filtered_df[final_filtered_df[d_cols].apply(lambda row: target_num in row.values, axis=1)]
 
 st.markdown('<hr style="margin-top: 8px; margin-bottom: 8px; opacity: 0.2;">', unsafe_allow_html=True)
 
 
 # --- 카드 리스트 출력 ---
-st.markdown(f'<div style="font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; color: #666;">리스트 ({len(filtered_df)}곡)</div>', unsafe_allow_html=True)
+st.markdown(f'<div style="font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; color: #666;">리스트 ({len(final_filtered_df)}곡)</div>', unsafe_allow_html=True)
 
-for index, row in filtered_df.iterrows():
-    # 해당 곡의 싱글 난이도 수집 및 S포맷 변환
+for index, row in final_filtered_df.iterrows():
     s_list = [f"S{int(row[c])}" for c in s_cols if c in df.columns and pd.notna(row[c])]
-    # 해당 곡의 더블 난이도 수집 및 D포맷 변환
     d_list = [f"D{int(row[c])}" for c in d_cols if c in df.columns and pd.notna(row[c])]
-    
-    # 싱글 먼저 다 보여주고, 그 뒤에 더블이 이어서 나오도록 순서 정렬
     total_diffs = s_list + d_list
     
     tag_html = '<div class="badge-container">'
