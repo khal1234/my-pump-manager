@@ -66,7 +66,7 @@ if selected_category != "전체":
 else:
     cat_df = df.copy()
 
-# 🌟 3. [핵심 추가] Addition 검색/드롭다운 필터 (2차 필터)
+# 3. Addition 검색/드롭다운 필터 (2차 필터)
 st.markdown('<div class="filter-label">세부 팩 / 분류 (Addition)</div>', unsafe_allow_html=True)
 raw_additions = cat_df["Addition"].dropna().unique()
 add_options = ["전체"] + sorted([str(add) for add in raw_additions])
@@ -80,17 +80,20 @@ else:
     final_filtered_df = cat_df.copy()
 
 
-# 현재 필터링된 데이터 내에서 실제 입력된 숫자 추출 후 S/D 문자열 결합
+# 🌟 [안전화 완료] 텍스트 오염 방어형 레벨 추출 로직
 s_levels_set = set()
 for col in s_cols:
     if col in final_filtered_df.columns:
-        valid_vals = final_filtered_df[col].dropna().astype(int).unique()
+        # 셀 안에 숫자가 아닌 문자(?, X, 공백 등)가 있어도 NaN으로 바꿔서 완벽하게 튕겨냄
+        numeric_series = pd.to_numeric(final_filtered_df[col], errors='coerce').dropna()
+        valid_vals = numeric_series.astype(int).unique()
         s_levels_set.update([f"S{v}" for v in valid_vals])
 
 d_levels_set = set()
 for col in d_cols:
     if col in final_filtered_df.columns:
-        valid_vals = final_filtered_df[col].dropna().astype(int).unique()
+        numeric_series = pd.to_numeric(final_filtered_df[col], errors='coerce').dropna()
+        valid_vals = numeric_series.astype(int).unique()
         d_levels_set.update([f"D{v}" for v in valid_vals])
 
 # 정렬할 때 숫자 크기대로 정렬
@@ -135,8 +138,23 @@ st.markdown('<hr style="margin-top: 8px; margin-bottom: 8px; opacity: 0.2;">', u
 st.markdown(f'<div style="font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; color: #666;">리스트 ({len(final_filtered_df)}곡)</div>', unsafe_allow_html=True)
 
 for index, row in final_filtered_df.iterrows():
-    s_list = [f"S{int(row[c])}" for c in s_cols if c in df.columns and pd.notna(row[c])]
-    d_list = [f"D{int(row[c])}" for c in d_cols if c in df.columns and pd.notna(row[c])]
+    # 🌟 [안전화 완료] 개별 카드 생성 시 엑셀 오타 때문에 터지는 현상 2차 방어
+    s_list = []
+    for c in s_cols:
+        if c in df.columns and pd.notna(row[c]):
+            try:
+                s_list.append(f"S{int(pd.to_numeric(row[c]))}")
+            except (ValueError, TypeError):
+                continue
+
+    d_list = []
+    for c in d_cols:
+        if c in df.columns and pd.notna(row[c]):
+            try:
+                d_list.append(f"D{int(pd.to_numeric(row[c]))}")
+            except (ValueError, TypeError):
+                continue
+                
     total_diffs = s_list + d_list
     
     tag_html = '<div class="badge-container">'
